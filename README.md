@@ -98,3 +98,7 @@ These hosts all serve over HTTPS, which the camera requires.
 | `src/main.ts` | Wiring, main loop, debug overlay, keyboard |
 
 In dev builds, the console exposes `airHarp` for testing without hands. For example, `airHarp.addString(300, 200, 900, 600)` places a string and `airHarp.pluck(0, 1, true)` flick-plucks it.
+
+### Live site
+
+Pushing to `main` runs `.github/workflows/deploy.yml`, which builds the app and publishes it with GitHub Pages. This is a project repo under the `BobbyGordon631` account, whose Pages site uses the custom domain kksolve.com, so it's served at **https://kksolve.com/handtracker/**.
