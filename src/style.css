@@ -1,0 +1,177 @@
+:root {
+  color-scheme: dark;
+  --fg: #dff6ff;
+  --dim: rgba(200, 230, 255, 0.55);
+  --accent: #7fe3ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: var(--fg);
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#app,
+#app canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+}
+
+#cam {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#debug {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
+#labels {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.note-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font: 500 13px/1 ui-monospace, 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.08em;
+  color: #fff;
+  text-shadow: 0 0 8px currentColor;
+  white-space: nowrap;
+  will-change: transform, opacity;
+}
+
+#fps {
+  position: fixed;
+  top: 10px;
+  left: 12px;
+  font: 12px ui-monospace, 'SF Mono', Menlo, monospace;
+  color: var(--dim);
+  pointer-events: none;
+}
+
+#hint {
+  position: fixed;
+  bottom: 12px;
+  left: 14px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: rgba(200, 230, 255, 0.28);
+  pointer-events: none;
+}
+
+#overlay,
+#error {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(10, 20, 40, 0.92), rgba(0, 0, 0, 0.98));
+  z-index: 10;
+}
+
+#error[hidden],
+#overlay[hidden] {
+  display: none;
+}
+
+.panel {
+  max-width: 520px;
+  padding: 32px;
+  text-align: center;
+}
+
+.panel h1 {
+  margin: 0 0 8px;
+  font-weight: 200;
+  font-size: 44px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 0 18px rgba(127, 227, 255, 0.8), 0 0 42px rgba(127, 140, 255, 0.5);
+}
+
+.panel .sub,
+.panel p {
+  color: var(--dim);
+  line-height: 1.5;
+}
+
+.panel button {
+  margin: 18px 0 6px;
+  padding: 12px 34px;
+  font: inherit;
+  font-size: 16px;
+  letter-spacing: 0.12em;
+  color: #fff;
+  background: transparent;
+  border: 1px solid rgba(127, 227, 255, 0.7);
+  border-radius: 999px;
+  box-shadow: 0 0 18px rgba(127, 227, 255, 0.35), inset 0 0 12px rgba(127, 227, 255, 0.2);
+  cursor: pointer;
+  transition: box-shadow 0.2s, transform 0.1s;
+}
+
+.panel button:hover {
+  box-shadow: 0 0 28px rgba(127, 227, 255, 0.6), inset 0 0 16px rgba(127, 227, 255, 0.3);
+}
+
+.panel button:active {
+  transform: scale(0.97);
+}
+
+.panel button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+#status {
+  min-height: 1.5em;
+  font-size: 13px;
+}
+
+.cheats {
+  margin: 18px auto 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+  font-size: 13px;
+  color: var(--dim);
+  line-height: 1.9;
+}
+
+.cheats b {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.lil-gui.root {
+  z-index: 20;
+}

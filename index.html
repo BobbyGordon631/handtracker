@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Air Harp</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 fill=%22black%22/%3E%3Cpath d=%22M6 26L26 6M10 28L28 10M4 22L22 4%22 stroke=%22%237fe3ff%22 stroke-width=%222%22/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <!-- Webcam source. Kept "visible" at 1px so Safari keeps decoding frames. -->
+    <video id="cam" playsinline muted autoplay></video>
+
+    <!-- Debug landmark overlay (only drawn when enabled in settings). -->
+    <canvas id="debug"></canvas>
+    <div id="labels"></div>
+    <div id="fps"></div>
+    <div id="hint">H settings · C clear · Z undo</div>
+
+    <div id="overlay">
+      <div class="panel">
+        <h1>Air Harp</h1>
+        <p class="sub">Draw strings of light with your hands. Play them by sweeping a finger through.</p>
+        <button id="start">Tap to begin</button>
+        <p id="status"></p>
+        <ul class="cheats">
+          <li><b>Pinch both hands</b>, pull apart, release: place a string</li>
+          <li><b>Pinch one hand</b>, drag, release: also places a string</li>
+          <li><b>Swipe your index finger</b> through a string to pluck it</li>
+          <li><b>Flick fast</b> for sparks · <b>sweep across several</b> to strum</li>
+          <li><b>Hold an open palm still</b> to clear · pinch a string's middle and pull to break it</li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="error" hidden>
+      <div class="panel">
+        <h1 id="error-title">Camera unavailable</h1>
+        <p id="error-msg"></p>
+        <button id="retry">Try again</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
