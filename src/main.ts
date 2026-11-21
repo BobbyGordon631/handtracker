@@ -2,7 +2,7 @@ import './style.css';
 import { HandLandmarker } from '@mediapipe/tasks-vision';
 import { AudioEngine } from './audio';
 import { GestureEngine, TIP_INDEX } from './gestures';
-import { Controller, type View } from './interaction';
+import { Controller, HandMode, type View } from './interaction';
 import { refreshScale } from './music';
 import { ParticleSystem } from './particles';
 import { Renderer } from './render';
@@ -190,53 +190,107 @@ function frame(): void {
   const now = nowMs / 1000;
 
   const fresh = tracker.detect(nowMs);
+  // Hands are drawn at the display rate, predicted between camera frames.
+  tracker.updateDisplay(nowMs, dt);
   renderer.setCover(tracker.coverX, tracker.coverY);
-  gestures.update(tracker, fresh, nowMs, view.diag, strings.aliveCount() > 0);
+  gestures.update(tracker, fresh, nowMs, dt, view.diag, strings.aliveCount() > 0);
   controller.update(nowMs);
   strings.update(dt);
   particles.update(dt, now);
 
-  draw(now);
+  draw(now, dt);
   if (settings.debug) drawDebug();
 }
 
-function draw(now: number): void {
+// Per-hand animated visual state.
+const ringAlpha = [0, 0];
+const ringProg = [0, 0];
+const ringX = [0, 0];
+const ringY = [0, 0];
+const ringR = [100, 100];
+const handVis = [0, 0];
+const cutVis = [0, 0];
+
+const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
+const smoothstep = (a: number, b: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+/** Frame-rate-independent approach factor for exponential smoothing at `rate` per second. */
+const approach = (dt: number, rate: number) => 1 - Math.exp(-dt * rate);
+
+function draw(now: number, dt: number): void {
   renderer.beginFrame();
 
   for (const s of strings.list) {
     computePoints(s, now, scratch);
-    // Pluck glow brightens the string and thickens it slightly.
-    renderer.drawString(scratch, 4.5 + s.glow * 0.6, s.hue, 1 + s.glow * 0.55, s.alpha);
-    renderer.sprite(s.ax, s.ay, 9, s.hue, 0.7, 0.7, 0.9 * s.alpha);
-    renderer.sprite(s.bx, s.by, 9, s.hue, 0.7, 0.7, 0.9 * s.alpha);
-    if (s.labelAlpha > 0) labelFor(s.pitch.name, s.ax, s.ay, s.bx, s.by, s.labelAlpha * 0.55 * s.alpha, s.hue);
+    const ap = easeOut(s.appear);
+    const alpha = s.alpha * (0.55 + 0.45 * ap);
+    // Pluck glow brightens the string and thickens it; hover (a pinch would grab
+    // it) lifts it a little; tension (being pulled) heats it toward white.
+    const width = 4.5 + s.glow * 0.6 + s.hover * 1.4 + s.tension * 1.8;
+    const intensity = 1 + s.glow * 0.55 + s.hover * 0.4 + s.tension * 0.9;
+    renderer.drawString(scratch, width, s.hue, intensity, alpha, Math.max(s.tension * s.tension, s.hover * 0.12));
+    const endA = (0.9 + s.hover * 0.5) * alpha;
+    renderer.sprite(s.ax, s.ay, 9 + s.hover * 3, s.hue, 0.7, 0.7, endA);
+    renderer.sprite(s.bx, s.by, 9 + s.hover * 3, s.hue, 0.7, 0.7, endA);
+    const la = Math.max(s.labelAlpha * 0.55, s.hover * 0.6);
+    if (la > 0) labelFor(s.pitch.name, s.ax, s.ay, s.bx, s.by, la * s.alpha, s.hue);
   }
 
+  // Draft fades in as it reaches placeable length, instead of popping in.
   const d = controller.draft;
-  if (controller.draftActive && d.length >= controller.minLength) {
-    computePoints(d, now, scratch);
-    renderer.drawString(scratch, 4, d.hue, 0.9, 0.55);
-    labelFor(d.pitch.name, d.ax, d.ay, d.bx, d.by, 0.75, d.hue);
+  if (controller.draftActive) {
+    const vis = smoothstep(controller.minLength * 0.4, controller.minLength, d.length);
+    if (vis > 0) {
+      computePoints(d, now, scratch);
+      renderer.drawString(scratch, 4, d.hue, 0.9, 0.55 * vis);
+      renderer.sprite(d.ax, d.ay, 10, d.hue, 0.7, 0.75, 0.8 * vis);
+      labelFor(d.pitch.name, d.ax, d.ay, d.bx, d.by, 0.75 * vis, d.hue);
+    }
   }
 
   // Fingertip dots: thumb + index per hand (plus other tips when they can pluck).
+  // Open fingertips cross-fade into a single pinch dot as the fingers close.
+  // The pinch dot is gold when it will draw, red when it will grab a string.
   for (let i = 0; i < 2; i++) {
     const g = gestures.hands[i];
-    if (!g.present) {
-      renderer.palmRing(i, 0, 0, 0, 0);
-      continue;
-    }
-    const dim = g.fresh || tracker.hands[i].visible ? 1 : 0.4; // dim during the grace period
-    if (g.pinching) {
-      renderer.sprite(g.pinchX, g.pinchY, 22, 45, 0.6, 0.8, 1.6 * dim);
-    } else {
-      renderer.sprite(g.tipX[0], g.tipY[0], 12, 190, 0.8, 0.75, 0.9 * dim);
-      renderer.sprite(g.tipX[TIP_INDEX], g.tipY[TIP_INDEX], 14, 190, 0.6, 0.85, 1.2 * dim);
-      if (settings.pluckAllFingers) {
-        for (let k = 2; k < 5; k++) renderer.sprite(g.tipX[k], g.tipY[k], 10, 190, 0.8, 0.75, 0.7 * dim);
+    const h = tracker.hands[i];
+    handVis[i] += ((g.present ? (h.visible ? 1 : 0.45) : 0) - handVis[i]) * approach(dt, 12);
+    const cut = controller.mode(i) === HandMode.Grab || controller.hover[i] !== null;
+    cutVis[i] += ((cut ? 1 : 0) - cutVis[i]) * approach(dt, 16);
+
+    if (handVis[i] > 0.01 && g.present) {
+      const v = handVis[i];
+      const pv = g.pinchVis;
+      const c = cutVis[i];
+      const open = (1 - pv) * v;
+      if (open > 0.01) {
+        const hue = 190 + 165 * c; // cyan → red as a grab becomes possible
+        renderer.sprite(g.dTipX[0], g.dTipY[0], 12, hue, 0.8, 0.75, 0.9 * open);
+        renderer.sprite(g.dTipX[TIP_INDEX], g.dTipY[TIP_INDEX], 14, hue, 0.6, 0.85, 1.2 * open);
+        if (settings.pluckAllFingers) {
+          for (let k = 2; k < 5; k++) renderer.sprite(g.dTipX[k], g.dTipY[k], 10, hue, 0.8, 0.75, 0.7 * open);
+        }
+      }
+      if (pv > 0.01) {
+        const hue = 45 - 45 * c; // gold (draw) → red (grab)
+        renderer.sprite(g.dPinchX, g.dPinchY, 14 + 8 * pv, hue, 0.65 + 0.2 * c, 0.8, 1.6 * pv * v);
       }
     }
-    renderer.palmRing(i, g.palmX, g.palmY, g.scale * 1.6, g.holdProgress);
+
+    // Fingers-crossed clear ring: fades in/out and keeps its last fill while fading.
+    const showing = g.present && g.holdProgress > 0;
+    if (g.holdFired) ringProg[i] = 1;
+    else if (showing) ringProg[i] = g.holdProgress;
+    if (g.present) {
+      ringX[i] = g.dPalmX;
+      ringY[i] = g.dPalmY;
+      ringR[i] = g.scale * 1.6;
+    }
+    ringAlpha[i] += ((showing ? 1 : 0) - ringAlpha[i]) * approach(dt, showing ? 14 : 7);
+    if (!showing && ringAlpha[i] < 0.01) ringProg[i] = 0;
+    renderer.palmRing(i, ringX[i], ringY[i], ringR[i] * (1 + 0.15 * (1 - ringAlpha[i])), easeOut(ringProg[i]), ringAlpha[i]);
   }
 
   renderer.endFrame();
@@ -283,7 +337,7 @@ function drawDebug(): void {
     ctx.fillStyle = '#fff';
     ctx.font = '11px ui-monospace, monospace';
     ctx.fillText(
-      `${h.label || '?'} pinch ${g.pinchRatio.toFixed(2)}${g.pinching ? ' ●' : ''}${g.open ? ' open' : ''} v ${g.speed[TIP_INDEX].toFixed(2)}${h.visible ? '' : ' (grace)'}`,
+      `${h.label || '?'} pinch ${g.pinchRatio.toFixed(2)}${g.pinching ? ' ●' : ''}${g.crossed ? ' crossed' : ''}${g.closing ? ' closing' : ''} v ${g.speed[TIP_INDEX].toFixed(2)}${h.visible ? '' : ' (grace)'}`,
       h.x(0) + 10,
       h.y(0) + 16,
     );

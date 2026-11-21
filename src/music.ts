@@ -64,8 +64,19 @@ export interface Pitch {
 
 export const makePitch = (): Pitch => ({ rawFreq: 0, midi: 0, freq: 0, name: '', t: 0 });
 
-/** Length (px) → quantized pitch. Writes into `out` (no allocation). */
-export function lengthToPitch(lengthPx: number, diagPx: number, out: Pitch): Pitch {
+/**
+ * How much closer (in semitones) a neighbouring note must be before we leave the
+ * `prefer` note. Stops the draft's note flickering between two neighbours when
+ * the hand hovers at the boundary, and makes the placed string keep the note
+ * the draft was showing.
+ */
+const NOTE_HYSTERESIS = 0.3;
+
+/**
+ * Length (px) → quantized pitch. Writes into `out` (no allocation). If `prefer`
+ * is a note of the current scale, it's kept unless another note is clearly closer.
+ */
+export function lengthToPitch(lengthPx: number, diagPx: number, out: Pitch, prefer = -1): Pitch {
   const lRef = REF_LENGTH_OF_DIAGONAL * diagPx;
   const fRef = midiToFreq(lowMidi);
   const fMax = midiToFreq(highMidi);
@@ -84,6 +95,9 @@ export function lengthToPitch(lengthPx: number, diagPx: number, out: Pitch): Pit
       bestD = d;
       best = scaleNotes[i];
     }
+  }
+  if (prefer !== best && scaleNotes.includes(prefer) && Math.abs(prefer - mFloat) < bestD + NOTE_HYSTERESIS) {
+    best = prefer;
   }
 
   out.rawFreq = f;

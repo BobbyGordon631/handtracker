@@ -43,6 +43,7 @@ const RIBBON_FRAGMENT = /* glsl */ `
 
 const RING_FRAGMENT = /* glsl */ `
   uniform float uProgress;
+  uniform float uAlpha;
   uniform vec3 uColor;
   varying vec2 vUv;
   void main() {
@@ -50,8 +51,9 @@ const RING_FRAGMENT = /* glsl */ `
     float r = length(p);
     float a = fract(atan(p.x, p.y) / 6.2831853 + 1.0); // 0 at 12 o'clock, clockwise
     float ring = exp(-pow((r - 0.82) / 0.035, 2.0));
-    float lit = step(a, uProgress);
-    vec3 col = uColor * ring * (0.15 + 1.0 * lit);
+    // Soft leading edge so the fill glides rather than ticks.
+    float lit = 1.0 - smoothstep(uProgress - 0.004, uProgress + 0.004, a);
+    vec3 col = uColor * ring * (0.15 + 1.0 * lit) * uAlpha;
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -142,7 +144,7 @@ class Ribbon {
   }
 
   /** Extrude a polyline (screen px, x/y pairs) into a ribbon of the given half-width. */
-  update(pts: Float32Array, halfWidth: number, hue: number, intensity: number, alpha: number): void {
+  update(pts: Float32Array, halfWidth: number, hue: number, intensity: number, alpha: number, whiten: number): void {
     const P = this.positions;
     for (let i = 0; i < POINTS; i++) {
       const i0 = Math.max(0, i - 1);
@@ -166,7 +168,8 @@ class Ribbon {
     }
     this.posAttr.needsUpdate = true;
     const u = this.material.uniforms;
-    (u.uColor.value as THREE.Color).setHSL((hue / 360) % 1, 0.9, 0.55);
+    // whiten: 0 = normal colour, 1 = white-hot (a string about to snap).
+    (u.uColor.value as THREE.Color).setHSL((hue / 360) % 1, 0.9 * (1 - 0.75 * whiten), 0.55 + 0.25 * whiten);
     u.uIntensity.value = intensity;
     u.uAlpha.value = alpha;
     this.mesh.visible = true;
@@ -180,7 +183,7 @@ class PalmRing {
     this.material = new THREE.ShaderMaterial({
       vertexShader: SIMPLE_VERTEX,
       fragmentShader: RING_FRAGMENT,
-      uniforms: { uProgress: { value: 0 }, uColor: { value: new THREE.Color(0.55, 0.85, 1.0) } },
+      uniforms: { uProgress: { value: 0 }, uAlpha: { value: 0 }, uColor: { value: new THREE.Color(0.55, 0.85, 1.0) } },
       blending: THREE.AdditiveBlending,
       depthTest: false,
       depthWrite: false,
@@ -190,11 +193,12 @@ class PalmRing {
     this.mesh.frustumCulled = false;
     this.mesh.visible = false;
   }
-  set(x: number, y: number, radius: number, progress: number): void {
+  set(x: number, y: number, radius: number, progress: number, alpha: number): void {
     this.mesh.position.set(x, -y, 0);
     this.mesh.scale.set(radius, radius, 1);
     this.material.uniforms.uProgress.value = progress;
-    this.mesh.visible = progress > 0;
+    this.material.uniforms.uAlpha.value = alpha;
+    this.mesh.visible = alpha > 0.005;
   }
 }
 
@@ -364,9 +368,9 @@ export class Renderer {
     this.labels.begin();
   }
 
-  drawString(pts: Float32Array, halfWidth: number, hue: number, intensity: number, alpha: number): void {
+  drawString(pts: Float32Array, halfWidth: number, hue: number, intensity: number, alpha: number, whiten = 0): void {
     if (this.ribbonsUsed >= RIBBON_POOL) return;
-    this.ribbons[this.ribbonsUsed++].update(pts, halfWidth, hue, intensity, alpha);
+    this.ribbons[this.ribbonsUsed++].update(pts, halfWidth, hue, intensity, alpha, whiten);
   }
 
   /** A glowing dot (fingertips, string anchors). */
@@ -383,8 +387,9 @@ export class Renderer {
     this.spriteSize[i] = size;
   }
 
-  palmRing(i: number, x: number, y: number, radius: number, progress: number): void {
-    this.rings[i].set(x, y, radius, progress);
+  /** Fingers-crossed clear progress ring around a hand. */
+  palmRing(i: number, x: number, y: number, radius: number, progress: number, alpha: number): void {
+    this.rings[i].set(x, y, radius, progress, alpha);
   }
 
   endFrame(): void {

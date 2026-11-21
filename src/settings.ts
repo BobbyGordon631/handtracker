@@ -15,7 +15,8 @@ export const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A',
 /** Live, mutable settings. Modules read from this every frame, so GUI changes apply instantly. */
 export const settings = {
   // Music
-  scale: 'Pentatonic major',
+  // Major = all seven natural notes in C (C D E F G A B). Pentatonic leaves out F and B.
+  scale: 'Major',
   root: 'C' as string,
   lowOctave: 3, // lowest note = root in this octave (C3)
   octaves: 3, // range span → C3..C6
@@ -32,8 +33,8 @@ export const settings = {
 
   // Tracking / gestures
   pinchThreshold: 0.32, // thumb–index distance ÷ hand size to START a pinch (release at ×1.45)
-  minCutoff: 1.2, // One Euro: Hz. Lower = smoother when still, but laggier.
-  beta: 0.012, // One Euro: speed coefficient. Higher = less lag on fast moves.
+  minCutoff: 1.0, // One Euro: Hz. Lower = smoother when still, but laggier.
+  beta: 0.02, // One Euro: speed coefficient. Higher = less lag on fast moves.
   flickSpeed: 2.6, // fingertip speed (screen diagonals / s) that counts as a flick
   pluckAllFingers: false,
 

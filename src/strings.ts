@@ -13,6 +13,10 @@ const NEW_STRING_GRACE_MS = 300;
 const END_MARGIN = 0.03;
 const FADE_TIME = 0.6;
 const SNAP_FADE_TIME = 0.18;
+/** A freshly placed string brightens from the translucent draft look over this long (s). */
+const APPEAR_TIME = 0.3;
+/** Only the middle of a string can be grabbed: pinching near an end is for drawing a new string from there. */
+const GRAB_U_MIN = 0.15;
 const LN_1000 = Math.log(1000);
 
 let nextId = 1;
@@ -47,21 +51,35 @@ export class HarpString {
   createdMs = 0;
   isDraft = false;
 
+  /** 0 → 1 over the first moments after it's placed (fade-in from the draft look). */
+  appear = 1;
+  /** A hand is about to pinch this string (it would grab it). Animated toward hoverTarget. */
+  hover = 0;
+  hoverTarget = 0;
+
   grabbed = false;
+  /** Grab point (screen px) and where along the string it was grabbed (0..1). */
   gx = 0;
   gy = 0;
+  gu = 0.5;
+  /** How close a grabbed string is to snapping, 0..1. */
+  tension = 0;
 
-  setEnds(ax: number, ay: number, bx: number, by: number, diag: number): void {
+  /**
+   * Set the end points and retune. `prefer` keeps that MIDI note if it's still
+   * nearly as close as the nearest one (see lengthToPitch).
+   */
+  setEnds(ax: number, ay: number, bx: number, by: number, diag: number, prefer = -1): void {
     this.ax = ax;
     this.ay = ay;
     this.bx = bx;
     this.by = by;
     this.length = Math.max(1, Math.hypot(bx - ax, by - ay));
-    this.retune(diag);
+    this.retune(diag, prefer);
   }
 
-  retune(diag: number): void {
-    lengthToPitch(this.length, diag, this.pitch);
+  retune(diag: number, prefer = -1): void {
+    lengthToPitch(this.length, diag, this.pitch, prefer);
     this.decay = stringDecay(this.pitch.freq);
     this.tau = this.decay / LN_1000;
     // low = warm red-orange (15°), high = cool blue-violet (270°)
@@ -81,10 +99,10 @@ export class HarpString {
 export function displacementAt(s: HarpString, u: number, now: number): number {
   let d = 0;
   const t = now - s.pluckTime;
-  if (s.amp > 0 && t >= 0) {
+  if (s.amp !== 0 && t >= 0) {
     // Decaying standing wave: fundamental + a little 2nd harmonic. Same τ as the audio.
     const env = s.amp * Math.exp(-t / s.tau);
-    if (env > 0.03) {
+    if (Math.abs(env) > 0.03) {
       const w = 2 * Math.PI * s.visFreq * t;
       d = env * (s.h1 * Math.sin(Math.PI * u) * Math.cos(w) + s.h2 * Math.sin(2 * Math.PI * u) * Math.cos(2 * w + 0.7));
     }
@@ -96,27 +114,32 @@ export function displacementAt(s: HarpString, u: number, now: number): number {
 /** Fill `out` with POINTS (x,y) pairs describing the string's current shape. */
 export function computePoints(s: HarpString, now: number, out: Float32Array): void {
   const { ax, ay, bx, by } = s;
-  if (s.grabbed) {
-    // Pulled by its middle: two straight halves meeting at the grab point.
-    for (let i = 0; i < POINTS; i++) {
-      const u = i / SEGMENTS;
-      if (u <= 0.5) {
-        const k = u * 2;
-        out[i * 2] = ax + (s.gx - ax) * k;
-        out[i * 2 + 1] = ay + (s.gy - ay) * k;
-      } else {
-        const k = (u - 0.5) * 2;
-        out[i * 2] = s.gx + (bx - s.gx) * k;
-        out[i * 2 + 1] = s.gy + (by - s.gy) * k;
-      }
-    }
-    return;
-  }
   const dx = bx - ax;
   const dy = by - ay;
   const L = Math.max(1, Math.hypot(dx, dy));
   const nx = -dy / L;
   const ny = dx / L;
+  if (s.grabbed) {
+    // Pulled at gu: two straight pieces meeting at the grab point. Near breaking
+    // point it starts to tremble, so you can feel the snap coming.
+    const tr = Math.max(0, s.tension - 0.55) * 7 * Math.sin(now * 83) * Math.sin(now * 37 + 1.3);
+    const gx = s.gx + nx * tr;
+    const gy = s.gy + ny * tr;
+    // Put a vertex exactly on the grab point so the corner stays sharp.
+    const iG = Math.min(SEGMENTS - 2, Math.max(2, Math.round(s.gu * SEGMENTS)));
+    for (let i = 0; i < POINTS; i++) {
+      if (i <= iG) {
+        const k = i / iG;
+        out[i * 2] = ax + (gx - ax) * k;
+        out[i * 2 + 1] = ay + (gy - ay) * k;
+      } else {
+        const k = (i - iG) / (SEGMENTS - iG);
+        out[i * 2] = gx + (bx - gx) * k;
+        out[i * 2 + 1] = gy + (by - gy) * k;
+      }
+    }
+    return;
+  }
   for (let i = 0; i < POINTS; i++) {
     const u = i / SEGMENTS;
     const d = displacementAt(s, u, now);
@@ -202,6 +225,7 @@ export class StringManager {
   add(s: HarpString, nowMs: number): HarpString | null {
     s.createdMs = nowMs;
     s.isDraft = false;
+    s.appear = 0;
     this.list.push(s);
     if (this.aliveCount() > MAX_STRINGS) {
       const oldest = this.list.find((x) => x.state === 'alive');
@@ -216,11 +240,13 @@ export class StringManager {
   fade(s: HarpString): void {
     if (s.state === 'alive') s.state = 'fading';
     s.grabbed = false;
+    s.tension = 0;
   }
 
   snap(s: HarpString): void {
     s.state = 'snapping';
     s.grabbed = false;
+    s.tension = 0;
   }
 
   /** Fade the most recently added string. */
@@ -250,9 +276,12 @@ export class StringManager {
   }
 
   update(dt: number): void {
+    const hoverK = 1 - Math.exp(-dt * 14);
     for (let i = this.list.length - 1; i >= 0; i--) {
       const s = this.list[i];
       s.glow *= Math.exp(-dt / Math.max(0.25, s.tau * 0.6));
+      s.appear = Math.min(1, s.appear + dt / APPEAR_TIME);
+      s.hover += ((s.state === 'alive' ? s.hoverTarget : 0) - s.hover) * hoverK;
       s.labelAlpha = Math.max(0, s.labelAlpha - dt / 1.5);
       if (s.state === 'fading') s.alpha -= dt / FADE_TIME;
       else if (s.state === 'snapping') s.alpha -= dt / SNAP_FADE_TIME;
@@ -332,16 +361,26 @@ export class StringManager {
     return best;
   }
 
-  /** Alive string whose midpoint is within maxDist of (x, y). */
-  nearestMidpoint(x: number, y: number, maxDist: number): HarpString | null {
+  /**
+   * The alive string closest to (x, y), within maxDist px of it, measured
+   * anywhere along its middle section (GRAB_U_MIN … 1 − GRAB_U_MIN). Writes
+   * where along the string into out.u.
+   */
+  nearestGrabbable(x: number, y: number, maxDist: number, out: { u: number }): HarpString | null {
     let best: HarpString | null = null;
     let bestD = maxDist;
     for (const s of this.list) {
       if (s.state !== 'alive' || s.grabbed) continue;
-      const d = Math.hypot(s.midX - x, s.midY - y);
+      const dx = s.bx - s.ax;
+      const dy = s.by - s.ay;
+      const l2 = dx * dx + dy * dy || 1;
+      const u = ((x - s.ax) * dx + (y - s.ay) * dy) / l2;
+      if (u < GRAB_U_MIN || u > 1 - GRAB_U_MIN) continue;
+      const d = Math.hypot(x - (s.ax + dx * u), y - (s.ay + dy * u));
       if (d < bestD) {
         bestD = d;
         best = s;
+        out.u = u;
       }
     }
     return best;
@@ -351,8 +390,8 @@ export class StringManager {
     for (const s of this.list) s.retune(diag);
   }
 
-  /** Keep strings in the same relative place when the window resizes. */
+  /** Keep strings in the same relative place (and on the same note, if still close) when the window resizes. */
   rescale(sx: number, sy: number, diag: number): void {
-    for (const s of this.list) s.setEnds(s.ax * sx, s.ay * sy, s.bx * sx, s.by * sy, diag);
+    for (const s of this.list) s.setEnds(s.ax * sx, s.ay * sy, s.bx * sx, s.by * sy, diag, s.pitch.midi);
   }
 }
